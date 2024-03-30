@@ -2,30 +2,31 @@
 
 require_relative "sumire/version"
 require "ansi2txt"
+require "fileutils"
 
 module Sumire
   class Error < StandardError; end
 
   class Sumire # rubocop:disable Style/Documentation
-    class << self
-      attr_accessor :directory
-    end
-
     # rubocop:disable Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/MethodLength,Metrics/PerceivedComplexity, Lint/MissingCopEnableDirective
     def self.exec(**kwargs)
-      directory = kwargs[:directory]
-      directory = "." if directory.nil?
+      destination = kwargs[:destination]
+      if destination.nil?
+        FileUtils.mkdir_p("/tmp/sumire")
+        destination = "/tmp/sumire/#{SecureRandom.uuid}.log"
+      end
       target = kwargs[:target]
       target = "typescript" if target.nil?
       verbose = kwargs[:verbose] || false
       old_lines = 0
       list = []
       old_text = ""
-      start_time = Time.now.strftime("%Y%m%d_%H%M%S")
+
+      listen_dir = File.dirname(target)
 
       # rubocop:disable Metrics/BlockLength
-      listener = Listen.to(".") do |modified, _added, _removed|
-        if modified.map { |file| File.basename(file) }.include?(target)
+      listener = Listen.to(listen_dir) do |modified, _added, _removed|
+        if modified.include?(target)
           input = File.open(target)
 
           # txt: string
@@ -54,7 +55,7 @@ module Sumire
           if old_lines < new_lines
             add_line.each do |line|
               list.append(line)
-              File.open("#{directory}/#{start_time}.log", "a") do |f|
+              File.open(destination, "a") do |f|
                 f.puts(line)
               end
             end

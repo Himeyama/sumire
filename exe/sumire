@@ -5,6 +5,8 @@ require "sumire"
 require "listen"
 require "optparse"
 require "sys/proctable"
+require "securerandom"
+require "fileutils"
 
 @i18n = {
   "en": {
@@ -17,7 +19,10 @@ require "sys/proctable"
     "EOR": "\e[31;1m■ End of record\e[0m",
     "specify_dir": "Specify the directory",
     "no_directory": "\e[31mDirectory does not exist\e[0m",
-    "save_to": "Save to: "
+    "save_to": "Save to: ",
+    "version_info": "Display version information",
+    "arg_command": "Run the command rather than an interactive shell",
+    "license_info": "Displays license information"
   },
   "ja": {
     "arg_less_one": "引数の個数は 1 個以下でなければなりません",
@@ -29,7 +34,10 @@ require "sys/proctable"
     "EOR": "\e[31;1m■ 記録を終了します\e[0m",
     "specify_dir": "ディレクトリを指定します",
     "no_directory": "\e[31mディレクトリが存在しません\e[0m",
-    "save_to": "保存先: "
+    "save_to": "保存先: ",
+    "version_info": "バージョン情報を表示します",
+    "arg_command": "コマンドではなくシェルを実行します",
+    "license_info": "ソフトウェアのライセンス情報を表示します"
   }
 }
 
@@ -39,57 +47,80 @@ def comment(tag)
   @i18n[lang][tag]
 end
 
-def main(**kwargs) # rubocop:disable Metrics/MethodLength,Metrics/AbcSize
+# rubocop:disable Metrics/MethodLength,Metrics/AbcSize,Metrics/CyclomaticComplexity,Metrics/PerceivedComplexity, Lint/MissingCopEnableDirective
+def main(**kwargs)
   dir = kwargs[:directory]
   dir = "." if dir.nil? || dir.empty?
   dir = dir.sub(%r{/\z}, "")
 
-  processes = Sys::ProcTable.ps
-  processes.each do |process|
-    next unless process.cmdline.match(/^script/)
+  command = kwargs[:command]
+  command = command ? " -c \"#{command}\"" : ""
 
-    warn("#{comment(:exist_process)}\n\n")
-    warn("\e[32mkill #{process.pid}\e[0m")
-    exit(false)
+  verbose = kwargs[:verbose] || false
+
+  unless verbose
+    processes = Sys::ProcTable.ps
+    processes.each do |process|
+      next unless process.cmdline.match(/^script/)
+
+      warn("#{comment(:exist_process)}\n\n")
+      warn("\e[32mkill #{process.pid}\e[0m")
+      exit(false)
+    end
   end
 
+  dst = "#{dir}/#{Time.now.strftime("%Y%m%d_%H%M%S")}.log"
+  dst = File.expand_path(dst)
   print(comment(:save_to))
-  puts("#{dir}/#{Time.now.strftime("%Y%m%d_%H%M%S")}.log")
+  puts(dst)
   puts(comment(:start_recording))
-  system("sumire -m #{dir}& script -f")
+
+  FileUtils.mkdir_p("/tmp/sumire")
+  tmp = "/tmp/sumire/#{SecureRandom.uuid}.log"
+  tmp = Pathname(Dir.pwd).join("typescript").to_path if verbose
+  thread = Thread.new do
+    Sumire::Sumire.exec(destination: dst, target: tmp, verbose: verbose)
+  end
+  thread.join if verbose
+
+  script_cmd = "script -f #{tmp}#{command}"
+  system(script_cmd) unless verbose
+
   puts(comment(:EOR))
 end
 
 opt = OptionParser.new
+verbose = false
+dir = "."
+cmd = nil
 
-opt.on("-v", "--verbose", comment(:output_log)) do |_v|
-  Sumire::Sumire.exec(verbose: true)
+opt.on("-V", "--version", comment(:version_info)) do |_v|
+  puts("#{File.basename($PROGRAM_NAME)} (#{Sumire::VERSION})")
   exit(true)
 end
 
-opt.on("-m [Directory]", "--monitor", comment(:save_log)) do |dir|
-  Sumire::Sumire.exec(directory: dir)
+opt.on("--license", comment(:license_info)) do |_v|
+  puts(Sumire::COPYRIGHT)
   exit(true)
 end
 
-opt.on("-d [Directory]", "--directory [Directory]", comment(:specify_dir)) do |dir|
-  if dir.nil?
-    dir = ""
-  elsif !Dir.exist?(dir)
-    warn(comment(:no_directory))
-    exit(false)
-  end
-  main(directory: dir)
-  exit(true)
+opt.on("-v", "--verbose", comment(:output_log)) do |v|
+  verbose = v
 end
 
-opt.on("") do |_v|
-  main
-  exit(true)
+opt.on("-c [Command]", "--command", comment(:arg_command)) do |command|
+  cmd = command
+end
+
+opt.on("-d [Directory]", "--directory", comment(:specify_dir)) do |directory|
+  dir = directory
 end
 
 begin
   opt.parse!(ARGV)
 rescue OptionParser::InvalidOption
   warn(comment(:option_not_appropriate))
+  exit(false)
 end
+
+main(directory: dir, verbose: verbose, command: cmd)
