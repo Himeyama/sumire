@@ -1,0 +1,95 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "sumire"
+require "listen"
+require "optparse"
+require "sys/proctable"
+
+@i18n = {
+  "en": {
+    "arg_less_one": "The number of arguments must be less than or equal to 1",
+    "output_log": "Output logs to standard output",
+    "save_log": "Save the log to a file",
+    "exist_process": "The `script` process exists\nExecute the following command to stop the process",
+    "option_not_appropriate": "Option is not appropriate",
+    "start_recording": "\e[31;1m● Start recording\e[0m",
+    "EOR": "\e[31;1m■ End of record\e[0m",
+    "specify_dir": "Specify the directory",
+    "no_directory": "\e[31mDirectory does not exist\e[0m",
+    "save_to": "Save to: "
+  },
+  "ja": {
+    "arg_less_one": "引数の個数は 1 個以下でなければなりません",
+    "output_log": "標準出力に表示します",
+    "save_log": "ログファイルに記録します",
+    "exist_process": "`script` プロセスが存在しています\n以下のコマンドを実行してプロセスを停止してください。",
+    "option_not_appropriate": "オプションが適切ではありません\n次のコマンドを実行し使い方を確認して下さい\n\e[32m#{File.basename($PROGRAM_NAME)} -h\e[0m",
+    "start_recording": "\e[31;1m● 記録を開始します\e[0m",
+    "EOR": "\e[31;1m■ 記録を終了します\e[0m",
+    "specify_dir": "ディレクトリを指定します",
+    "no_directory": "\e[31mディレクトリが存在しません\e[0m",
+    "save_to": "保存先: "
+  }
+}
+
+def comment(tag)
+  lang = :en
+  lang = :ja if ENV["LANG"].downcase.include?("ja")
+  @i18n[lang][tag]
+end
+
+def main(**kwargs) # rubocop:disable Metrics/MethodLength,Metrics/AbcSize
+  dir = kwargs[:directory]
+  dir = "." if dir.nil? || dir.empty?
+  dir = dir.sub(%r{/\z}, "")
+
+  processes = Sys::ProcTable.ps
+  processes.each do |process|
+    next unless process.cmdline.match(/^script/)
+
+    warn("#{comment(:exist_process)}\n\n")
+    warn("\e[32mkill #{process.pid}\e[0m")
+    exit(false)
+  end
+
+  print(comment(:save_to))
+  puts("#{dir}/#{Time.now.strftime("%Y%m%d_%H%M%S")}.log")
+  puts(comment(:start_recording))
+  system("sumire -m #{dir}& script -f")
+  puts(comment(:EOR))
+end
+
+opt = OptionParser.new
+
+opt.on("-v", "--verbose", comment(:output_log)) do |_v|
+  Sumire::Sumire.exec(verbose: true)
+  exit(true)
+end
+
+opt.on("-m [Directory]", "--monitor", comment(:save_log)) do |dir|
+  Sumire::Sumire.exec(directory: dir)
+  exit(true)
+end
+
+opt.on("-d [Directory]", "--directory [Directory]", comment(:specify_dir)) do |dir|
+  if dir.nil?
+    dir = ""
+  elsif !Dir.exist?(dir)
+    warn(comment(:no_directory))
+    exit(false)
+  end
+  main(directory: dir)
+  exit(true)
+end
+
+opt.on("") do |_v|
+  main
+  exit(true)
+end
+
+begin
+  opt.parse!(ARGV)
+rescue OptionParser::InvalidOption
+  warn(comment(:option_not_appropriate))
+end
