@@ -22,7 +22,8 @@ require "fileutils"
     "save_to": "Save to: ",
     "version_info": "Display version information",
     "arg_command": "Run the command rather than an interactive shell",
-    "license_info": "Displays license information"
+    "license_info": "Displays license information",
+    "legacy": "Enable legacy mode"
   },
   "ja": {
     "arg_less_one": "引数の個数は 1 個以下でなければなりません",
@@ -37,7 +38,8 @@ require "fileutils"
     "save_to": "保存先: ",
     "version_info": "バージョン情報を表示します",
     "arg_command": "コマンドではなくシェルを実行します",
-    "license_info": "ソフトウェアのライセンス情報を表示します"
+    "license_info": "ソフトウェアのライセンス情報を表示します",
+    "legacy": "レガシーモードを有効にします"
   }
 }
 
@@ -57,17 +59,7 @@ def main(**kwargs)
   command = command ? " -c \"#{command}\"" : ""
 
   verbose = kwargs[:verbose] || false
-
-  unless verbose
-    processes = Sys::ProcTable.ps
-    processes.each do |process|
-      next unless process.cmdline.match(/^script/)
-
-      warn("#{comment(:exist_process)}\n\n")
-      warn("\e[32mkill #{process.pid}\e[0m")
-      exit(false)
-    end
-  end
+  legacy = kwargs[:legacy] || false
 
   dst = "#{dir}/#{Time.now.strftime("%Y%m%d_%H%M%S")}.log"
   dst = File.expand_path(dst)
@@ -75,15 +67,15 @@ def main(**kwargs)
   puts(dst)
   puts(comment(:start_recording))
 
-  FileUtils.mkdir_p("/tmp/sumire")
-  tmp = "/tmp/sumire/#{SecureRandom.uuid}.log"
+  tmp = "/tmp/sumire/#{SecureRandom.uuid}/typescript"
   tmp = Pathname(Dir.pwd).join("typescript").to_path if verbose
+  FileUtils.mkdir_p(Pathname(tmp).dirname.to_path)
   thread = Thread.new do
-    Sumire::Sumire.exec(destination: dst, target: tmp, verbose: verbose)
+    Sumire::Sumire.exec(destination: dst, target: tmp, verbose: verbose, legacy: legacy)
   end
   thread.join if verbose
 
-  script_cmd = "script -f #{tmp}#{command}"
+  script_cmd = "script -q -f #{tmp}#{command}"
   system(script_cmd) unless verbose
 
   puts(comment(:EOR))
@@ -91,6 +83,7 @@ end
 
 opt = OptionParser.new
 verbose = false
+legacy = false
 dir = "."
 cmd = nil
 
@@ -116,6 +109,10 @@ opt.on("-d [Directory]", "--directory", comment(:specify_dir)) do |directory|
   dir = directory
 end
 
+opt.on("-l", "--legacy", comment(:legacy)) do |_v|
+  legacy = true
+end
+
 begin
   opt.parse!(ARGV)
 rescue OptionParser::InvalidOption
@@ -123,4 +120,4 @@ rescue OptionParser::InvalidOption
   exit(false)
 end
 
-main(directory: dir, verbose: verbose, command: cmd)
+main(directory: dir, verbose: verbose, command: cmd, legacy: legacy)
