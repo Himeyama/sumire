@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Sumire
-  VERSION = "24.03.31"
+  VERSION = "24.04.03"
 
   COPYRIGHT = <<~COPYRIGHT_TEXT
     The MIT License (MIT)
